@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Aluseg MCP Tool Specification",
+  "version": "0.1.0",
+  "description": "Open, machine-readable specification for the MCP tools exposed by an Aluseg-compatible rental-management backend. Any backend implementing this schema can be served by the Aluseg MCP reference server.",
+  "license": "AGPL-3.0",
+  "tools": [
+    {
+      "name": "verify_parties",
+      "description": "Authenticate and verify the identity of the landlord and tenant before any contract or payment action.",
+      "access": "read",
+      "requiresConsent": false,
+      "inputSchema": {
+        "type": "object",
+        "required": ["landlord_nif", "tenant_nif", "oauth_token"],
+        "properties": {
+          "landlord_nif": { "type": "string", "description": "Portuguese tax ID (NIF) of the landlord" },
+          "tenant_nif": { "type": "string", "description": "Portuguese tax ID (NIF) of the tenant" },
+          "oauth_token": { "type": "string", "description": "Per-user OAuth 2.0 bearer token; never a shared service credential" }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "verified": { "type": "boolean" },
+          "amlFlags": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "constraint": "Requires OAuth 2.0 authentication; parses eIDAS-compliant digital signatures where available."
+    },
+    {
+      "name": "generate_lease",
+      "description": "Compile verified party and property metadata into a standardized Portuguese rental contract draft.",
+      "access": "write",
+      "requiresConsent": false,
+      "requiresHumanConfirmation": true,
+      "inputSchema": {
+        "type": "object",
+        "required": ["property_id", "parties_verified_id", "rent_value", "duration"],
+        "properties": {
+          "property_id": { "type": "string" },
+          "parties_verified_id": { "type": "string", "description": "Reference returned by verify_parties" },
+          "rent_value": { "type": "number", "minimum": 0 },
+          "duration": { "type": "string", "description": "Lease duration, e.g. '12m'" }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "draftUrl": { "type": "string", "description": "Secure URL to an eIDAS-signable draft PDF" }
+        }
+      },
+      "constraint": "Restricted to verified owners. Always returns a draft for human review; never auto-executes or auto-signs."
+    },
+    {
+      "name": "notify_tax_authority",
+      "description": "Submit a signed lease contract to the Portuguese Tax and Customs Authority (AT) for mandatory registration.",
+      "access": "write",
+      "requiresConsent": true,
+      "requiresHumanConfirmation": true,
+      "inputSchema": {
+        "type": "object",
+        "required": ["signed_contract_hash", "at_credentials_token"],
+        "properties": {
+          "signed_contract_hash": { "type": "string" },
+          "at_credentials_token": { "type": "string", "description": "Short-lived, scoped token — never a raw AT password" }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "receiptId": { "type": "string" },
+          "taxId": { "type": "string" }
+        }
+      },
+      "constraint": "Requires active, explicit, time-bounded consent from the landlord before submission."
+    },
+    {
+      "name": "propose_unpaid_insurance",
+      "description": "Assess tenant default risk from consented data and return unpaid-rent insurance quotes.",
+      "access": "read",
+      "requiresConsent": true,
+      "inputSchema": {
+        "type": "object",
+        "required": ["tenant_consent_token", "monthly_rent"],
+        "properties": {
+          "tenant_consent_token": { "type": "string", "description": "Explicit, time-bounded consent token (e.g. PSD2 open-banking scope)" },
+          "monthly_rent": { "type": "number", "minimum": 0 }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "riskScore": { "type": "number" },
+          "quotes": { "type": "array", "items": { "type": "object" } }
+        }
+      },
+      "constraint": "Requires explicit, time-bounded user consent. Uses only permitted data; no data retained beyond the scored request."
+    },
+    {
+      "name": "get_rent_status",
+      "description": "Read rent-payment status for a property over a given period.",
+      "access": "read",
+      "requiresConsent": false,
+      "inputSchema": {
+        "type": "object",
+        "required": ["property_id", "period"],
+        "properties": {
+          "property_id": { "type": "string" },
+          "period": { "type": "string", "description": "ISO period, e.g. '2026-07'" }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "status": { "type": "string", "enum": ["paid", "pending", "overdue"] },
+          "amount": { "type": "number" }
+        }
+      },
+      "constraint": "Read-only; scoped to properties the authenticated user owns or manages."
+    }
+  ]
+}
